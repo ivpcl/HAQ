@@ -14,13 +14,14 @@ from matplotlib import pyplot as plt
 from torch.utils.data import DataLoader
 from aqua.nn.dloaders import AOLMETrmsDLoader
 from aqua.nn.dloaders import AOLMEValTrmsDLoader
-import pytkit as pk
+from pytkit import pytkit as pk
 from aqua.nn.models import DyadicCNN3D
 from aqua.nn.models import DyadicCNN3DV2
 from torchsummary import summary
-#import nvidia_smi
+from aqua.frameworks.typing.cpu_memory_monitor import MemoryMonitor
+import nvidia_smi
 #nvidia_smi.nvmlInit()
-import time
+#import time
 
 class Typing3:
     """
@@ -193,7 +194,7 @@ class Typing3:
             tyrp_video = self.tyrp_roi_only[self.tyrp_roi_only['name'] == video_name].copy()
 
             # Reading input video
-            ivid = pk.Vid(f"{self.cfg['vdir']}/{video_name}", "read")
+            ivid = pk.Vid(f"{self.cfg['vdir']}/{video_name}", "read", self.cfg['model_fps'])
 
             # Loop through each instance in the video
             for ii, row in tqdm(tyrp_video.iterrows(), total=tyrp_video.shape[0], desc="Extracting: "):
@@ -219,10 +220,10 @@ class Typing3:
 
                     # Check if the file already exists
                     if overwrite:
-                        ivid.save_spatiotemporal_trim(sfrm, efrm, bbox, opth, fps=self.cfg['model_fps'])
+                        ivid.save_spatiotemporal_trim(sfrm, efrm, bbox, opth)
                     else:
                         if not os.path.isfile(opth):
-                            ivid.save_spatiotemporal_trim(sfrm, efrm, bbox, opth, fps=self.cfg['model_fps'])
+                            ivid.save_spatiotemporal_trim(sfrm, efrm, bbox, opth)
                 else:
                     prop_name_lst += ["dummy_name.mp4"]
                     opth_rel = f"proposals_kbdet/dummy_name.mp4"
@@ -278,6 +279,13 @@ class Typing3:
         # Loop over each video every 3 secons
         typrop_lst = []
         for vid_name in vid_names:
+
+            print(f"sprop_df['name']: {self.sprop_df['name']}\n")
+
+            print(f"Processing {vid_name}\n")
+            print(f"inner key: {self.sprop_df[self.sprop_df['name'] == vid_name]}\n")
+
+            print(f"2D key len: {len(self.sprop_df[self.sprop_df['name'] == vid_name]['dur'])}\n")
             
             # Properties of current Video
             T = int(self.sprop_df[self.sprop_df['name'] == vid_name]['dur'].item())
@@ -285,11 +293,15 @@ class Typing3:
             H = int(self.sprop_df[self.sprop_df['name'] == vid_name]['height'].item())
             FPS = int(self.sprop_df[self.sprop_df['name'] == vid_name]['FPS'].item())
 
+
+
             # ROI and Keyboard detection for current video
             roi_df_vid = self.roi_df[self.roi_df['video_names'] == vid_name].copy()
 
             # Current video duration from session properties
-            dur_vid = self.sprop_df[self.sprop_df['name'] == vid_name]['dur'].item()
+            # ML COMMENT UNUSED:: -- dur_vid = self.sprop_df[self.sprop_df['name'] == vid_name]['dur'].item()
+
+            print(f"check if exists: {self.cfg['vdir']}/{vid_name}")
             vor = pk.Vid(f"{self.cfg['vdir']}/{vid_name}", 'read')
             f0_last = vor.props['num_frames'] - self.dur*self.fps
             vor.close()
@@ -388,15 +400,15 @@ class Typing3:
         )
 
         # Resetting maximum memory usage and starting the clock
-        torch.cuda.reset_peak_memory_stats(device=0)
+        #torch.cuda.reset_peak_memory_stats(device=0)
         pred_prob_lst = []
 
         # Starting inference
         start_time = time.time()
         for idx, data in enumerate(Bar(tst_loader)):
             dummy_labels, inputs = (
-                data[0].to("cuda:0", non_blocking=True),
-                data[1].to("cuda:0", non_blocking=True)
+                data[0],#.to("cuda:0", non_blocking=True),
+                data[1]#.to("cuda:0", non_blocking=True)
             )
 
             with torch.no_grad():
@@ -408,7 +420,11 @@ class Typing3:
 
         # Collecting and printing statistics
         end_time = time.time()        
-        max_memory_MB = torch.cuda.max_memory_allocated(device=0)/1000000
+        #max_memory_MB = torch.cuda.max_memory_allocated(device=0)/1000000
+        monitor = MemoryMonitor()
+        monitor.update()
+        max_memory_MB = monitor.get_max_memory_allocated()
+
         print(f"INFO: Total time for batch size of       {batch_size} = {round(end_time - start_time)} sec.")
         print(f"INFO: Max memory usage for batch size of {batch_size} = {round(max_memory_MB, 2)} MB")
         
@@ -507,8 +523,8 @@ class Typing3:
                 # Loop over tst data (??? goes over only once. I am desparate so I kept the loop)
                 for data in tst_loader:
                     dummy_labels, inputs = (
-                        data[0].to("cuda:0", non_blocking=True),
-                        data[1].to("cuda:0", non_blocking=True)
+                        data[0],#.to("cuda:0", non_blocking=True),
+                        data[1]#.to("cuda:0", non_blocking=True)
                     )
                     
                     with torch.no_grad():
@@ -633,8 +649,8 @@ class Typing3:
                     # Loop over tst data (??? goes over only once. I am desparate so I kept the loop)
                     for data in tst_loader:
                         dummy_labels, inputs = (
-                            data[0].to("cuda:0", non_blocking=True),
-                            data[1].to("cuda:0", non_blocking=True)
+                            data[0],#.to("cuda:0", non_blocking=True),
+                            data[1]#.to("cuda:0", non_blocking=True)
                         )
 
                         with torch.no_grad():
@@ -1237,13 +1253,14 @@ class Typing3:
         # Creating an instance of Dyadic 3D-CNN
         # net = DyadicCNN3DV2(depth, [3, 30, 224, 224])
         net = DyadicCNN3DV2(depth, cfg['input_shape'].copy())
-        net.to("cuda:0")
+        #net.to("cuda:0")
 
         # Print summary of network.
         summary(net, tuple(cfg['input_shape'].copy()))
 
         # Loading the net with trained weights to cuda device 0
-        ckpt_weights = torch.load(ckpt)
+        # ML COMMENT - I am loading the weights to CPU. Added the to the following line map_location=torch.device('cpu')
+        ckpt_weights = torch.load(ckpt, map_location=torch.device('cpu'))
         net.load_state_dict(ckpt_weights['model_state_dict'])
         net.eval()
 
@@ -1290,8 +1307,9 @@ class Typing3:
 
                 # Loop over tst data (goes over only once. I am desparate so I kept the loop)
                 for data in tst_loader:
-                    dummy_labels, inputs = (data[0].to("cuda:0", non_blocking=True),
-                                             data[1].to("cuda:0", non_blocking=True))
+                    # dummy_labels, inputs = (data[0].to("cuda:0", non_blocking=True),
+                    #                          data[1].to("cuda:0", non_blocking=True))
+                    dummy_labels, inputs = (data[0], data[1])
                     with torch.no_grad():
                         outputs = self._net(inputs)
                         ipred = outputs.data.clone()

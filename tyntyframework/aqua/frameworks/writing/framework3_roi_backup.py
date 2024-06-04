@@ -5,36 +5,26 @@ import cv2
 import aqua
 import math
 import torch
-import time
 import numpy as np
 import pandas as pd
 from tqdm import tqdm
-from barbar import Bar
 from matplotlib import pyplot as plt
 from torch.utils.data import DataLoader
 from aqua.nn.dloaders import AOLMETrmsDLoader
-from aqua.nn.dloaders import AOLMEValTrmsDLoader
 import pytkit as pk
 from aqua.nn.models import DyadicCNN3D
-from aqua.nn.models import DyadicCNN3DV2
 from torchsummary import summary
-#import nvidia_smi
-#nvidia_smi.nvmlInit()
-import time
 
-class Typing3:
-    """
-    Note
-    ----
-    This is hard coded to 10 frame samples per second or a total of
-    30 frames in 3 second video.
-    """
+
+class Writing3:
     
-    tydf = pd.DataFrame()
+    wdf = pd.DataFrame()
 
-    tyrp = pd.DataFrame()
+    wdf_roi_only = pd.DataFrame()
 
-    tyrp_roi_only = pd.DataFrame()
+    wrp = pd.DataFrame()
+
+    wrp_roi_only = pd.DataFrame()
 
     cfg = {}
     """Configuration dictionary"""
@@ -54,7 +44,7 @@ class Typing3:
     
     
     def __init__(self, cfg):
-        """ Spatio temporal typing detection using,
+        """ Spatio temporal writing detection using,
 
         Parameters
         ----------
@@ -69,214 +59,36 @@ class Typing3:
         self.roi_df = pd.read_csv(cfg['roi'])
         self.sprop_df = pd.read_csv(cfg['prop'])
 
-
-
-    def extract_typing_proposals_using_roi(self, overwrite = True, model_fps = None):
-        """Extracts typing region proposals using ROI to a directory (`odir`).
-
-        It write the output to `tyrp_only_roi.csv` adding an extra
-        column for names of extracted videos.
-
-        It also creates a text file at the output location of proposals
-        in the format our validation dataloader and mmaction2 validation
-        dataloader expects called, `proposals_list.txt`
-
-        Parameters
-        ----------
-        overwrite : Bool, optional
-            Overwrite existing typing proposals. Defaults to True.
-        model_fps : int, optional
-            The input FPS expected by the testing model. The proposals extracted from then
-            video have to be sampled at this frame rate. Defaults to the FPS of the session
-            video.
-        """
         
-        # Processing arguments
-        odir = pk.check_dir_existance(self.cfg['prop_vid_oloc'])
-        if model_fps == None:
-            model_fps = self.fps
-
-        # Loop through each video
-        prop_name_lst = []
-        prop_rel_paths = []
-        video_names = self.tyrp_roi_only['name'].unique().tolist()
-        for i, video_name in enumerate(video_names):
-
-            # Typing proposals for current dataframe
-            print(f"Extracting typing region proposals from: {video_name}")
-
-            # Region proposal per video
-            tyrp_video = self.tyrp_roi_only[self.tyrp_roi_only['name'] == video_name].copy()
-
-            # Reading input video
-            ivid = pk.Vid(f"{self.cfg['vdir']}/{video_name}", "read")
-
-            # Loop through each instance in the video
-            for ii, row in tqdm(tyrp_video.iterrows(), total=tyrp_video.shape[0], desc="Extracting: "):
-
-                # Spatio temporal trim coordinates
-                bbox = [row['w0'],row['h0'], row['w'], row['h']]
-                sfrm = row['f0']
-                efrm = row['f1']
-
-                # Trimming video
-                prop_name = f"{ivid.props['name']}_{row['pseudonym']}_{sfrm}_to_{efrm}.mp4"
-                prop_name_lst += [prop_name]
-                opth_rel = f"proposals/{prop_name}"
-                prop_rel_paths += [opth_rel]
-                opth = f"{self.cfg['prop_vid_oloc']}/{opth_rel}"
-
-                # Check if the file already exists
-                if overwrite:
-                    ivid.save_spatiotemporal_trim(sfrm, efrm, bbox, opth, fps=self.cfg['model_fps'])
-                else:
-                    if not os.path.isfile(opth):
-                        ivid.save_spatiotemporal_trim(sfrm, efrm, bbox, opth, fps=self.cfg['model_fps'])
-
-        # Saving the proposal dataframe with new column
-        if "proposal_name" in self.tyrp_roi_only.columns:
-            self.tyrp_roi_only.drop("proposal_name", inplace=True, axis=1)
-            self.tyrp_roi_only['proposal_name'] = prop_name_lst
-        else:
-            self.tyrp_roi_only['proposal_name'] = prop_name_lst
-        tyrp_roi_only_loc = f"{self.cfg['oloc']}/tyrp_only_roi.csv"
-        print(f"Rewriting {tyrp_roi_only_loc}")
-        self.tyrp_roi_only.to_csv(tyrp_roi_only_loc, index=False)
-
-        # Saving the proposals list text files
-        text_file_path = f"{self.cfg['prop_vid_oloc']}/proposals_list.txt"
-        print(f"Writing {text_file_path}")
-        f = open(text_file_path, "w")
-        for i in range(0, len(prop_rel_paths)):
-            f.write(f"{prop_rel_paths[i]} 100\n")
-        f.close()
-
-    def extract_typing_proposals_using_roi_kbdet(self, overwrite = True, model_fps = None):
-        """Extracts typing region proposals using ROI to a directory (`odir`).
-
-        It write the output to `tyrp_only_roi.csv` adding an extra
-        column for names of extracted videos.
-
-        It also creates a text file at the output location of proposals
-        in the format our validation dataloader and mmaction2 validation
-        dataloader expects called, `proposals_list_kbdet.txt`
-
-        Parameters
-        ----------
-        overwrite : Bool, optional
-            Overwrite existing typing proposals. Defaults to True.
-        model_fps : int, optional
-            The input FPS expected by the testing model. The proposals extracted from then
-            video have to be sampled at this frame rate. Defaults to the FPS of the session
-            video.
-        """
-        
-        # Processing arguments
-        odir = pk.check_dir_existance(self.cfg['prop_vid_oloc'])
-        if model_fps == None:
-            model_fps = self.fps
-
-        # Loop through each video
-        prop_name_lst = []
-        prop_rel_paths = []
-        video_names = self.tyrp_roi_only['name'].unique().tolist()
-        for i, video_name in enumerate(video_names):
-
-            # Loading keyboard detection dataframe
-            video_name_no_ext = os.path.splitext(video_name)[0]
-            kb_det = pd.read_csv(f"{self.cfg['kb_detdir']}/{video_name_no_ext}_60_det_per_min.csv")
-
-            # Typing proposals for current dataframe
-            print(f"Extracting typing region proposals from: {video_name}")
-
-            # Region proposal per video
-            tyrp_video = self.tyrp_roi_only[self.tyrp_roi_only['name'] == video_name].copy()
-
-            # Reading input video
-            ivid = pk.Vid(f"{self.cfg['vdir']}/{video_name}", "read")
-
-            # Loop through each instance in the video
-            for ii, row in tqdm(tyrp_video.iterrows(), total=tyrp_video.shape[0], desc="Extracting: "):
-
-                # Spatio temporal trim coordinates
-                bbox = [row['w0'],row['h0'], row['w'], row['h']]
-                sfrm = row['f0']
-                efrm = row['f1']
-
-                # Get keyboard detection intersection bounding box
-                kb_bbox = self._get_kbdet_intersection(kb_det, sfrm, efrm)
-
-                # Did they overlap?
-                iflag, icoords = self._get_intersection(bbox, kb_bbox)
-
-                # Trimming video
-                if iflag:
-                    prop_name = f"{ivid.props['name']}_{row['pseudonym']}_{sfrm}_to_{efrm}.mp4"
-                    prop_name_lst += [prop_name]
-                    opth_rel = f"proposals_kbdet/{prop_name}"
-                    prop_rel_paths += [opth_rel]
-                    opth = f"{self.cfg['prop_vid_oloc']}/{opth_rel}"
-
-                    # Check if the file already exists
-                    if overwrite:
-                        ivid.save_spatiotemporal_trim(sfrm, efrm, bbox, opth, fps=self.cfg['model_fps'])
-                    else:
-                        if not os.path.isfile(opth):
-                            ivid.save_spatiotemporal_trim(sfrm, efrm, bbox, opth, fps=self.cfg['model_fps'])
-                else:
-                    prop_name_lst += ["dummy_name.mp4"]
-                    opth_rel = f"proposals_kbdet/dummy_name.mp4"
-                    prop_rel_paths += [opth_rel]
-                            
-
-        # Saving the proposal dataframe with new column
-        if "proposal_name" in self.tyrp_roi_only.columns:
-            self.tyrp_roi_only.drop("proposal_name", inplace=True, axis=1)
-            self.tyrp_roi_only['proposal_name'] = prop_name_lst
-        else:
-            self.tyrp_roi_only['proposal_name'] = prop_name_lst
-        tyrp_roi_only_loc = f"{self.cfg['oloc']}/tyrp_only_roi.csv"
-        print(f"Rewriting {tyrp_roi_only_loc}")
-        self.tyrp_roi_only.to_csv(tyrp_roi_only_loc, index=False)
-
-        # Saving the proposals list text files
-        text_file_path = f"{self.cfg['prop_vid_oloc']}/proposals_list_kbdet.txt"
-        print(f"Writing {text_file_path}")
-        f = open(text_file_path, "w")
-        for prop_rel_path in prop_rel_paths:
-            if prop_rel_path != "proposals_kbdet/dummy_name.mp4":
-                f.write(f"{prop_rel_path} 100\n")
-        f.close()
-        
-    def generate_typing_proposals_using_roi(self, dur=3, fps=30, overwrite = True):
-        """ Calculates typing region proposals using ROI and keyboard
+    def generate_writing_proposals_using_roi(self, dur=3, fps=30, overwrite = True):
+        """ Calculates writing region proposals using ROI and keyboard
         detections.
 
-        It write the output to `tyrp_only_roi.csv`
+        It write the output to `wrp_only_roi.csv`
 
         Parameters
         ----------
         dur : int, optional
-            Duraion of each typing proposal
+            Duraion of each writing proposal
         fps : Frames per second, optional
             Framerate of 
         """
-        tyrp_roi_only_loc = f"{self.cfg['oloc']}/tyrp_only_roi.csv"
+        wrp_roi_only_loc = f"{self.cfg['oloc']}/wrp_only_roi.csv"
         
         # if overwrite == False then we check of existing csv with region proposals
         if not overwrite:
-            tyrp_roi_only_exists, self.tyrp_roi_only = self._read_from_disk(tyrp_roi_only_loc)
-            if tyrp_roi_only_exists:
-                print(f"Reading {tyrp_roi_only_loc}")
+            wrp_roi_only_exists, self.wrp_roi_only = self._read_from_disk(wrp_roi_only_loc)
+            if wrp_roi_only_exists:
+                print(f"Reading {wrp_roi_only_loc}")
                 return True
 
-        print(f"Creating {tyrp_roi_only_loc}")
+        print(f"Creating {wrp_roi_only_loc}")
         self.dur = dur
         self.fps = fps
         vid_names = self.cfg['vids']
         
-        # Loop over each video every 3 secons
-        typrop_lst = []
+        # Loop over each video
+        wprop_lst = []
         for vid_name in vid_names:
             
             # Properties of current Video
@@ -310,143 +122,24 @@ class Typing3:
                 if not skip_flag:
                     
                     # Get 3 second proposal regions
-                    typrop_3sec = self._get_3sec_proposal_df_roi_only(roi_df_3sec.copy())
+                    wprop_3sec = self._get_3sec_proposal_df_roi_only(roi_df_3sec.copy())
 
                     # Adding to prop_lst
-                    for typrop_3sec_i in typrop_3sec:
-                        typrop_lst_temp = [vid_name, W, H, FPS, T, f0, f, f1] + typrop_3sec_i
-                        typrop_lst += [typrop_lst_temp]
+                    for wprop_3sec_i in wprop_3sec:
+                        wprop_lst_temp = [vid_name, W, H, FPS, T, f0, f, f1] + wprop_3sec_i
+                        wprop_lst += [wprop_lst_temp]
 
-        # Creating typing proposal dataframe
-        tyrp = pd.DataFrame(
-            typrop_lst,
+        # Creating writing proposal dataframe
+        wrp = pd.DataFrame(
+            wprop_lst,
             columns=['name', 'W', 'H', 'FPS', 'T', 'f0', 'f', 'f1', 'pseudonym', 'w0', 'h0', 'w', 'h']
         )
-        self.tyrp_roi_only = tyrp
-        self.tyrp_roi_only.to_csv(tyrp_roi_only_loc, index=False)
+        self.wrp_roi_only = wrp
+        self.wrp_roi_only.to_csv(wrp_roi_only_loc, index=False)
         return True
 
-    def classify_typing_proposals_roi_fast_approach(self, overwrite=False, batch_size = 4, kb_det=False):
-        """Classify each proposed region as typing / no-typing. This method needs the
-        dataset in the format validation AOLMETrmsDLoader expects.
-
-        Parameters
-        ----------
-        overwrite : Bool, optional
-            Overwrites existing excel file 
-        """
-
-        # Output excel file with predictions
-        if kb_det:
-            out_file = f"{self.cfg['oloc']}/tynty-roi-ours-{3*self.cfg['model_fps']}-kbdet.csv"
-        else:
-            out_file = f"{self.cfg['oloc']}/tynty-roi-ours-{3*self.cfg['model_fps']}.csv"
-
-        # Creating default columns for activity, class_idx and class_prob
-        self.tyrp_roi_only["activity"] = "notyping"
-        self.tyrp_roi_only["class_idx"] = 0
-        self.tyrp_roi_only["class_prob"] = 0
-        
-        # If the file already exists and overwrite argument is false
-        # we load the file as dataframe
-        if not overwrite:
-            if os.path.isfile(out_file):
-                print(f"Reading {out_file}")
-                tydf = pd.read_csv(out_file)
-                self.tydf = tydf
-                return tydf
-
-        # creating tydf by copying self.tyrp_only_roi
-        self.tydf = self.tyrp_roi_only.copy()
-        
-        # Loading list of videos from the proposals_list.txt file
-        proposal_names = []
-        if kb_det:
-            proposal_list_file =f"{self.cfg['prop_vid_oloc']}/proposals_list_kbdet.txt"
-        else:
-            proposal_list_file =f"{self.cfg['prop_vid_oloc']}/proposals_list.txt"
-        with open(proposal_list_file) as f:
-            lines = f.readlines()
-            for line in lines:
-                proposal_rel_loc = line.split(" ")[0]
-                proposal_name = os.path.basename(proposal_rel_loc)
-                proposal_names += [proposal_name]
-        
-        # Loading the network
-        net = self._load_net(self.cfg)
-
-
-        # Initializing AOLME Validaiton data loader
-        tst_data = AOLMEValTrmsDLoader(
-            self.cfg['prop_vid_oloc'], proposal_list_file, oshape=(224, 224)
-        )
-        tst_loader = DataLoader(
-            tst_data,
-            shuffle=False,
-            batch_size=batch_size,
-            num_workers=batch_size
-        )
-
-        # Resetting maximum memory usage and starting the clock
-        torch.cuda.reset_peak_memory_stats(device=0)
-        pred_prob_lst = []
-
-        # Starting inference
-        start_time = time.time()
-        for idx, data in enumerate(Bar(tst_loader)):
-            dummy_labels, inputs = (
-                data[0].to("cuda:0", non_blocking=True),
-                data[1].to("cuda:0", non_blocking=True)
-            )
-
-            with torch.no_grad():
-                outputs = net(inputs)
-                ipred = outputs.data.clone()
-                ipred = ipred.to("cpu").numpy().flatten().tolist()
-                pred_prob_lst += ipred
-        # End of inference
-
-        # Collecting and printing statistics
-        end_time = time.time()        
-        max_memory_MB = torch.cuda.max_memory_allocated(device=0)/1000000
-        print(f"INFO: Total time for batch size of       {batch_size} = {round(end_time - start_time)} sec.")
-        print(f"INFO: Max memory usage for batch size of {batch_size} = {round(max_memory_MB, 2)} MB")
-        
-        # Edit information in the data frame
-        for i, proposal_name in enumerate(proposal_names):
-
-            # Calculating class details
-            pred = pred_prob_lst[i]
-            pred_class_idx = round(pred)
-            if pred_class_idx == 1:
-                pred_class = "typing"
-            else:
-                pred_class = "notyping"
-            pred_class_prob = round(pred, 2)
-
-            # This is because for 0.5 I am having problems in ROC curve
-            if pred_class_prob == 0.5:
-                if pred_class_idx == 1:
-                    pred_class_prob = 0.51
-                else:
-                    pred_class_prob = 0.49
-                    
-            # Adding the class details to to the dataframe
-            loc = self.tydf[self.tydf['proposal_name']==proposal_name].index.tolist()
-            if len(loc) > 1:
-                print(f"Multiple rows having same proposal name! {loc}")
-                import pdb; pdb.set_trace()
-
-            self.tydf.loc[loc[0], "activity"] = pred_class
-            self.tydf.loc[loc[0], "class_idx"] = pred_class_idx
-            self.tydf.loc[loc[0], "class_prob"] = pred_class_prob
-
-
-        # Saving the csv file
-        self.tydf.to_csv(out_file, index=False) 
-                     
-    def classify_typing_proposals_roi(self, overwrite=False):
-        """Classify each proposed region as typing / no-typing.
+    def classify_writing_proposals_roi(self, overwrite=False):
+        """ Classify each proposed region as writing / no-writing.
 
         Todo
         ----
@@ -455,32 +148,32 @@ class Typing3:
         at a time. 
         """
         # if the file is already present load it if overwrite == True
-        out_file = f"{self.cfg['oloc']}/tynty-roi-ours-3DCNN_30fps.csv"
+        out_file = f"{self.cfg['oloc']}/wnw-roi-ours-3DCNN_30fps.csv"
         if not overwrite:
             if os.path.isfile(out_file):
                 print(f"Reading {out_file}")
-                tydf = pd.read_csv(out_file)
-                self.tydf = tydf
-                return tydf
+                wdf = pd.read_csv(out_file)
+                self.wdf = wdf
+                return wdf
         
         # Loading neural network into GPU
         print(f"Creating {out_file}")
         net = self._load_net(self.cfg)
 
         # Loop through each video
-        video_names = self.tyrp_roi_only['name'].unique().tolist()
+        video_names = self.wrp_roi_only['name'].unique().tolist()
         for i, video_name in enumerate(video_names):
 
-            # Typing proposals for current dataframe
-            print(f"Classifying typing in {video_name}")
-            tyrp_video = self.tyrp_roi_only[self.tyrp_roi_only['name'] == video_name].copy()
-            tyrp_video['activity'] = ""
-            tyrp_video['class_idx'] = -1
-            tyrp_video['class_prob'] = "-1"
+            # Writing proposals for current dataframe
+            print(f"Classifying writing in {video_name}")
+            wrp_video = self.wrp_roi_only[self.wrp_roi_only['name'] == video_name].copy()
+            wrp_video['activity'] = ""
+            wrp_video['class_idx'] = -1
+            wrp_video['class_prob'] = "-1"
             ivid = pk.Vid(f"{self.cfg['vdir']}/{video_name}", "read")
 
             # Loop through each instance in the video
-            for ii, row in tqdm(tyrp_video.iterrows(), total=tyrp_video.shape[0], desc="INFO: Classifying"):
+            for ii, row in tqdm(wrp_video.iterrows(), total=wrp_video.shape[0], desc="INFO: Classifying"):
                 
                 # Spatio temporal trim coordinates
                 bbox = [row['w0'],row['h0'], row['w'], row['h']]
@@ -488,8 +181,8 @@ class Typing3:
                 efrm = row['f1']
                 opth = (f"{self.cfg['oloc']}/temp.mp4")
 
-                # Spatio temporal trim and change FPS
-                ivid.save_spatiotemporal_trim(sfrm, efrm, bbox, opth, fps=10)
+                # Spatio temporal trim
+                ivid.save_spatiotemporal_trim(sfrm, efrm, bbox, opth)
 
                 # Creating a temporary text file `temp.txt` having
                 # temp.mp4 and a dummy label (100)
@@ -515,14 +208,13 @@ class Typing3:
                         outputs = net(inputs)
                         ipred = outputs.data.clone()
                         ipred = ipred.to("cpu").numpy().flatten().tolist()
-                        
-                    ipred_class_idx = round(ipred[0])
+
+                    ipred_class_prob = round(ipred[0], 2)
+                    ipred_class_idx = round(ipred_class_prob)
                     if ipred_class_idx == 1:
-                        ipred_class = "typing"
-                        ipred_class_prob = round(ipred[0], 2)
+                        ipred_class = "writing"
                     else:
-                        ipred_class = "notyping"
-                        ipred_class_prob = 1 - round(ipred[0], 2)
+                        ipred_class = "nowriting"
                         
                     # This is because for 0.5 I am having problems in ROC curve
                     if ipred_class_prob == 0.5:
@@ -531,49 +223,50 @@ class Typing3:
                         else:
                             ipred_class_prob = 0.49
 
-                    tyrp_video.at[ii, 'activity'] = ipred_class
-                    tyrp_video.at[ii, 'class_prob'] = ipred_class_prob
-                    tyrp_video.at[ii, 'class_idx'] = ipred_class_idx
+                    wrp_video.at[ii, 'activity'] = ipred_class
+                    wrp_video.at[ii, 'class_prob'] = ipred_class_prob
+                    wrp_video.at[ii, 'class_idx'] = ipred_class_idx
 
 
                 # Close the vide
                 ivid.close()
 
                         
-            # If this is the first time, copy the proposal dataframe to typing dataframe
+            # If this is the first time, copy the proposal dataframe to writing dataframe
             # else concatinate
             if i == 0:
-                tydf = tyrp_video
+                wdf = wrp_video
             else:
-                tydf = pd.concat([tydf, tyrp_video])
+                wdf = pd.concat([wdf, wrp_video])
 
         # Save the dataframe
-        self.tydf = tydf.copy()
-        self.tydf.to_csv(f"{out_file}", index=False)
-        return tydf
+        self.wdf = wdf.copy()
+        self.wdf.to_csv(f"{out_file}", index=False)
+        return wdf
+
 
     def classify_proposals_using_kb_det(self, overwrite=False):
-        """ Classify each proposed region as typing / no-typing.
+        """ Classify each proposed region as writing / no-writing.
         In this method we use keyboard detection information
         to further improve performance.
 
-        The output is a csv file, "alg2-tynty-ro
+        The output is a csv file, "alg2-wnw-ro
         """
         # if the file is already present load it if overwrite == True
-        out_file = f"{self.cfg['oloc']}/tynty-roi-ours-3DCNN_kbdet_30fps.csv"
+        out_file = f"{self.cfg['oloc']}/wnw-roi-ours-3DCNN_kbdet_30fps.csv"
         if not overwrite:
             if os.path.isfile(out_file):
                 print(f"Reading {out_file}")
-                tydf = pd.read_csv(out_file)
-                self.tydf = tydf
-                return tydf
+                wdf = pd.read_csv(out_file)
+                self.wdf = wdf
+                return wdf
         
         # Loading neural network into GPU
         print(f"Creating {out_file}")
         net = self._load_net(self.cfg)
 
         # Loop through each video
-        video_names = self.tyrp_roi_only['name'].unique().tolist()
+        video_names = self.wrp_roi_only['name'].unique().tolist()
         for i, video_name in enumerate(video_names):
 
             # video_name_no_ext
@@ -581,16 +274,16 @@ class Typing3:
 
             # Loading relavent files
             ivid = pk.Vid(f"{self.cfg['vdir']}/{video_name}", "read")  # Video
-            tyrp_video = self.tyrp_roi_only[self.tyrp_roi_only['name'] == video_name].copy()  # Region proposals
+            wrp_video = self.wrp_roi_only[self.wrp_roi_only['name'] == video_name].copy()  # Region proposals
             kb_det = pd.read_csv(f"{self.cfg['kb_detdir']}/{video_name_no_ext}_60_det_per_min.csv")
 
 
             # Loop through each instance in the video
-            print(f"Classifying typing in {video_name}")
-            tyrp_video['activity'] = ""
-            tyrp_video['class_idx'] = -1
-            tyrp_video['class_prob'] = "-1"
-            for ii, row in tqdm(tyrp_video.iterrows(), total=tyrp_video.shape[0], desc="INFO: Classifying"):
+            print(f"Classifying writing in {video_name}")
+            wrp_video['activity'] = ""
+            wrp_video['class_idx'] = -1
+            wrp_video['class_prob'] = "-1"
+            for ii, row in tqdm(wrp_video.iterrows(), total=wrp_video.shape[0], desc="INFO: Classifying"):
                 
                 # Spatio temporal trim coordinates
                 bbox = [row['w0'],row['h0'], row['w'], row['h']]
@@ -606,16 +299,16 @@ class Typing3:
 
                 if not iflag:
                     
-                    # If they don't overlap then mark the proposal as notyping
+                    # If they don't overlap then mark the proposal as nowriting
                     # with class probability of 0 <--- Very confident
-                    tyrp_video.at[ii, 'activity'] = 'notyping'
-                    tyrp_video.at[ii, 'class_prob'] = 0.49
-                    tyrp_video.at[ii, 'class_idx'] = 0
+                    wrp_video.at[ii, 'activity'] = 'nowriting'
+                    wrp_video.at[ii, 'class_prob'] = 0.49
+                    wrp_video.at[ii, 'class_idx'] = 0
                     
                 else:
                     
-                    # Spatio temporal trim and FPS conversion
-                    ivid.save_spatiotemporal_trim(sfrm, efrm, bbox, opth, fps=10)
+                    # Spatio temporal trim
+                    ivid.save_spatiotemporal_trim(sfrm, efrm, bbox, opth)
 
                     # Creating a temporary text file `temp.txt` having
                     # temp.mp4 and a dummy label (100)
@@ -644,10 +337,10 @@ class Typing3:
 
                         ipred_class_idx = round(ipred[0])
                         if ipred_class_idx == 1:
-                            ipred_class = "typing"
+                            ipred_class = "writing"
                             ipred_class_prob = round(ipred[0], 2)
                         else:
-                            ipred_class = "notyping"
+                            ipred_class = "nowriting"
                             ipred_class_prob = round(ipred[0], 2)
 
                         # This is because for 0.5 I am having problems in ROC curve
@@ -657,9 +350,9 @@ class Typing3:
                             else:
                                 ipred_class_prob = 0.49
 
-                        tyrp_video.at[ii, 'activity'] = ipred_class
-                        tyrp_video.at[ii, 'class_prob'] = ipred_class_prob
-                        tyrp_video.at[ii, 'class_idx'] = ipred_class_idx
+                        wrp_video.at[ii, 'activity'] = ipred_class
+                        wrp_video.at[ii, 'class_prob'] = ipred_class_prob
+                        wrp_video.at[ii, 'class_idx'] = ipred_class_idx
                         
 
 
@@ -667,17 +360,17 @@ class Typing3:
                 ivid.close()
 
                         
-            # If this is the first time, copy the proposal dataframe to typing dataframe
+            # If this is the first time, copy the proposal dataframe to writing dataframe
             # else concatinate
             if i == 0:
-                tydf = tyrp_video
+                wdf = wrp_video
             else:
-                tydf = pd.concat([tydf, tyrp_video])
+                wdf = pd.concat([wdf, wrp_video])
 
         # Save the dataframe
-        self.tydf = tydf.copy()
-        self.tydf.to_csv(f"{out_file}", index=False)
-        return tydf
+        self.wdf = wdf.copy()
+        self.wdf.to_csv(f"{out_file}", index=False)
+        return wdf
 
     def _get_kbdet_intersection(self, kb_det, sfrm, efrm):
         """Determines keyboard detection intersectin bouhnding box between
@@ -707,16 +400,16 @@ class Typing3:
 
         return [tl_w, tl_h, w, h]
     
-    def _read_from_disk(self, tyrp_csv):
+    def _read_from_disk(self, wrp_csv):
         """Load the file if it exists"""
-        if os.path.isfile(tyrp_csv):
-            tyrp = pd.read_csv(tyrp_csv)
-            return True, tyrp
+        if os.path.isfile(wrp_csv):
+            wrp = pd.read_csv(wrp_csv)
+            return True, wrp
         else:
             return False, None
 
     def _get_3sec_proposal_df(self, roi_df, kdf):
-        """Returns a dataframe with typing region proposals using
+        """Returns a dataframe with writing region proposals using
         1. Table ROI
         2. Keyboard detections
 
@@ -771,6 +464,7 @@ class Typing3:
         
         return []
 
+
     def _get_intersection_area(self, roi, det):
         """Returns intersection area between roi coordinates and
         detection.
@@ -786,7 +480,7 @@ class Typing3:
         return icoords[2]*icoords[3]
     
     def _get_3sec_proposal_df_roi_only(self, roi_df):
-        """Returns a dataframe with typing region proposals using
+        """Returns a dataframe with writing region proposals using
         1. Table ROI
 
         Parameters
@@ -819,6 +513,7 @@ class Typing3:
                 
         return prop_lst
 
+    
     def _get_det_intersection(self, det_df):
         """Returns intersection of detection coordinates
 
@@ -848,6 +543,7 @@ class Typing3:
                 
         return det_i
     
+
     def _get_roi_intersection(self, roi_df, person):
         """Returns intersection ROI coordinates
 
@@ -880,6 +576,8 @@ class Typing3:
                         roi_i = roi_i
                         
         return roi_i
+
+
 
     def _get_intersection(self, rect1, rect2):
         """Get intersectin of two rectangles based on image coordinate
@@ -922,6 +620,9 @@ class Typing3:
             intersection_coords = [wi_tl, hi_tl, wi_br-wi_tl, hi_br-hi_tl]
             return True, intersection_coords
             
+
+
+
     def _skip_this_3sec_roi_only(self, roidf):
         """Skip the current 3 second interval if
         1. We do not have table region of interest
@@ -956,7 +657,8 @@ class Typing3:
                 return False
 
         return True
-     
+
+        
     def _skip_this_3sec(self, roidf, detdf):
         """Skip the current 3 second interval if
         1. We do not have table region of interest or keyboard detection
@@ -1009,7 +711,12 @@ class Typing3:
                 return False
 
         return True
-                         
+        
+
+
+
+
+                    
     def _get_union_of_keyboard_detections(self, df, f0, f):
         """ Returns keyboard detection regions using union of all the detections
         in an interval.
@@ -1067,7 +774,8 @@ class Typing3:
             new_rows += [new_row]
 
         return new_rows
- 
+
+    
     def _remove_outside_keyboard_detections(self, df, th=0.5):
         """ Removes all the keyboard detections that are less that are
         50% not inside the table boundary.
@@ -1084,6 +792,7 @@ class Typing3:
             if row['roi-overlap-ratio'] < th:
                 df.drop([ridx], inplace = True)
         return df
+
     
     def _get_roi_overlap_ratio(self, hdf, table_boundary):
         """ Adds a column to keyboard detections, roi-overlap-ratio.
@@ -1153,7 +862,8 @@ class Typing3:
         hdf['roi-overlap-ratio'] = o_area_ratio_lst
 
         return hdf
-   
+
+    
     def _have_sufficient_rois(self, df):
         """ Returns true if there there is a vlaid region of interest of atleast one
         student. A student having atleast tow rois out of three is considered valid.
@@ -1161,7 +871,7 @@ class Typing3:
         Parameters
         ----------
         df : DataFrame
-            A data frame having roi entries for `self.tydur`.
+            A data frame having roi entries for `self.wdur`.
         """
 
         # Dropping unnecessary columns
@@ -1172,7 +882,7 @@ class Typing3:
         for col in df.columns.tolist():
             
             valid_bboxes = 0
-            for i in range(0, self.tydur):
+            for i in range(0, self.wdur):
 
                 # Bounding box in current column
                 bbox_coords = df[col].iloc[i]
@@ -1189,14 +899,15 @@ class Typing3:
 
         # If thre are no valid bounding boxes return False
         return False
-   
+
+    
     def _get_table_boundary(self, df):
         """ Return table boundary as list, [w0, h0, w, h]
 
         Parameters
         ----------
         df : DataFrame
-            A data frame having roi entries for `self.tydur`.
+            A data frame having roi entries for `self.wdur`.
         """
 
         # Dropping unnecessary columns
@@ -1224,7 +935,9 @@ class Typing3:
         boundary = [w_min, h_min, w_max - w_min, h_max - h_min]
 
         return boundary
-      
+
+
+        
     def _load_net(self, cfg):
         """ Load neural network to GPU. """
 
@@ -1235,12 +948,11 @@ class Typing3:
         depth = cfg['depth']
 
         # Creating an instance of Dyadic 3D-CNN
-        # net = DyadicCNN3DV2(depth, [3, 30, 224, 224])
-        net = DyadicCNN3DV2(depth, cfg['input_shape'].copy())
+        net = DyadicCNN3D(depth, [3, 90, 224, 224])
         net.to("cuda:0")
 
         # Print summary of network.
-        summary(net, tuple(cfg['input_shape'].copy()))
+        # summary(net, (3, 90, 224, 224))
 
         # Loading the net with trained weights to cuda device 0
         ckpt_weights = torch.load(ckpt)
@@ -1249,8 +961,10 @@ class Typing3:
 
         return net
         
-    def _check_for_typing(self, proposal_df):
-        """ Checks for typing in the proposal data frame.
+        
+
+    def _check_for_writing(self, proposal_df):
+        """ Checks for writing in the proposal data frame.
 
         Parameters
         ----------
@@ -1258,7 +972,7 @@ class Typing3:
             Proposal dataframe having keyboards bounding boxes.
         Todo
         ----
-        1. Here I am trimming -> typing to hdd -> loading. This is not
+        1. Here I am trimming -> writing to hdd -> loading. This is not
            recommended for speed. Please try to improve.
         """
         import pdb; pdb.set_trace()
@@ -1267,7 +981,7 @@ class Typing3:
 
             # if w or h == 0 then there is no keyboards
             if row['w'] == 0 or row['h'] == 0:
-                proposal_df.at[i, 'typing'] = -1
+                proposal_df.at[i, 'writing'] = -1
             else:
                 # Creating temporal trim
                 bbox = [row['w0'],row['h0'], row['w'], row['h']]
@@ -1296,11 +1010,13 @@ class Typing3:
                         outputs = self._net(inputs)
                         ipred = outputs.data.clone()
                         ipred = ipred.to("cpu").numpy().flatten().tolist()
-                        proposal_df.at[i, 'typing'] = round(ipred[0])
+                        proposal_df.at[i, 'writing'] = round(ipred[0])
                         
         return proposal_df
 
-    def _get_proposal_df(self, bboxes, tydur):
+
+
+    def _get_proposal_df(self, bboxes, wdur):
         """
         OBSOLETE SHOULD BE DELETED IN CLEANUP PHASE.
         Creates a data frame with each row representing 3 seconds.
@@ -1309,8 +1025,8 @@ class Typing3:
         ----------
         bboxes: str
             path to file having keyboards bounding boxes
-        tydur: int, optional
-            Each typing instance duration considered in seconds. 
+        wdur: int, optional
+            Each writing instance duration considered in seconds. 
             Defaults to 3.
         """
         # Video properties
@@ -1318,9 +1034,9 @@ class Typing3:
         fps = self._vid.props['frame_rate']
 
         # Creating f0 and f lists
-        num_trims = math.floor(num_frames/(tydur*fps))
-        f0 = [x*(tydur*fps) for x in range(0, num_trims)]
-        f = [tydur*fps]*num_trims
+        num_trims = math.floor(num_frames/(wdur*fps))
+        f0 = [x*(wdur*fps) for x in range(0, num_trims)]
+        f = [wdur*fps]*num_trims
 
         # Creating W, H and FPS lists
         W = [self._vid.props['width']]*num_trims
@@ -1330,16 +1046,18 @@ class Typing3:
         # Get bounding boxes
         w0, h0, w, h = self._get_proposal_bboxes(bboxes, f0, f)
 
-        # Intializing all typing instances are marked nan(numpy)
-        typing_lst = [np.nan]*(num_trims)
+        # Intializing all writing instances are marked nan(numpy)
+        writing_lst = [np.nan]*(num_trims)
 
         # Creating data frame with all the lists
-        df = pd.DataFrame(list(zip(W, H, fps_lst, f0, f, w0, h0, w, h, typing_lst)),
-                          columns=["W","H", "FPS", "f0", "f", "w0", "h0", "w", "h", "typing"])
+        df = pd.DataFrame(list(zip(W, H, fps_lst, f0, f, w0, h0, w, h, writing_lst)),
+                          columns=["W","H", "FPS", "f0", "f", "w0", "h0", "w", "h", "writing"])
         return df
-  
+
+
+    
     def write_to_csv(self):
-        """ Writes typing instances to a csv file. The name of the file is `<video name>_wr_using_alg.csv` and has
+        """ Writes writing instances to a csv file. The name of the file is `<video name>_wr_using_alg.csv` and has
         following columns,
 
             1. f0      : poc of starting frame
@@ -1348,24 +1066,26 @@ class Typing3:
             4. w0, h0  : Bounding box top left corner
             5. w, h    : width and height of bounding box
             6. FPS     : Frames per second
-            7. typing : {-1, 0, 1}.
+            7. writing : {-1, 0, 1}.
                 -1 => Keyboards not found
-                0  => notyping
-                1  => typing
+                0  => nowriting
+                1  => writing
 
         """
-        # Update typing instances in typing dataframe by processing
+        # Update writing instances in writing dataframe by processing
         # valid instances to 0 or 1
-        self.tydf = self._check_for_typing(self._proposal_df.copy())
+        self.wdf = self._check_for_writing(self._proposal_df.copy())
         
         vname = self._vid.props['name']
         vloc = self._vid.props['dir_loc']
         csv_pth = f"{vloc}/{vname}_wr_using_alg.csv"
-        self.tydf.to_csv(csv_pth)
-              
+        self.wdf.to_csv(csv_pth)
+        
+
+        
     def _get_proposal_bboxes(self, bboxes, f0_lst, f_lst):
         """ Creates proposal bounding boxes. Trims from these bounding boxes are
-        later processed via typing detection algorithm.
+        later processed via writing detection algorithm.
 
         If there are multiple bounding boxes in the duration we consider the
         union of bounding boxes.
