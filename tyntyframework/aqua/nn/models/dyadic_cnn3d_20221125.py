@@ -45,7 +45,7 @@ class DyadicCNN3DV2(nn.Module):
         """
         # Set random seed
         torch.manual_seed(seed)
-        torch.cuda.manual_seed_all(seed) # --> not needed. Just in case.
+        #torch.cuda.manual_seed_all(seed) # --> not needed. Just in case.
 
         # Are number of dyads valid?
         if num_dyads > self.MAX_DYADS or num_dyads <= 0:
@@ -64,6 +64,7 @@ class DyadicCNN3DV2(nn.Module):
         """
         for lname in self.model:
             layer = self.model[lname]
+            #print(f"\nSTART Forward: lname = {lname}\n, layer = {layer}\n, INPUT x.shape = {x.shape}")
             if isinstance(layer, nn.Conv3d):
                 x = layer(x)
             elif isinstance(layer, nn.BatchNorm3d):
@@ -75,12 +76,14 @@ class DyadicCNN3DV2(nn.Module):
             elif isinstance(layer, nn.Dropout):
                 x = layer(x)
             elif isinstance(layer, nn.Linear):
-                if layer.out_features > 1:
-                    x = layer(x)  # Dense layer
-                else:
-                    x = torch.sigmoid(layer(x))  # Sigmoid layer
+                x = layer(x)  # Dense layer
+                if layer.out_features == 1:
+                    x = torch.sigmoid(x)  # Sigmoid layer
             else:
                 raise Exception(f"{lname} is not supported")
+            
+            #print(f"END Foward: lname = {lname}\n, layer = {layer}\n, OUTPUT x.shape = {x.shape} \n")
+
         return x
 
 
@@ -173,7 +176,10 @@ class DyadicCNN3DV2(nn.Module):
         # After dyads flatten and give input to dense layer
         model_dict['Flatten'] = nn.Flatten()
         model_dict['Dropout-Flatten'] = nn.Dropout(p=0.5)  # 50% dropout
+
+        
         ic = np.prod(ishape) * oc
+        #print(f"ic: {ic} ishape: {ishape} oc: {oc}")
         model_dict['Dense'] = nn.Linear(ic, 1)
 
         return model_dict

@@ -42,13 +42,13 @@ if __name__ == "__main__":
 
     # 2. Extract proposal regions into `proposals` directory
     st = time.time()
-    ty.extract_typing_proposals_using_roi_kbdet(overwrite=False, model_fps=cfg['model_fps'])
+    ty.extract_typing_proposals_using_roi_kbdet(overwrite=True, model_fps=cfg['model_fps'])
     et = time.time()
     print(f"Time taken in extracting proposal videos: {int(et-st)} sec.")
 
     # 3. Classify proposals
     st = time.time()
-    ty.classify_typing_proposals_roi_fast_approach(overwrite=False, batch_size=16, kb_det=True)
+    ty.classify_typing_proposals_roi_fast_approach(overwrite=True, batch_size=16, kb_det=True)
     et = time.time()
     print(f"Time taken in classifying the proposals: {int(et-st)} sec.")
     

@@ -280,12 +280,12 @@ class Typing3:
         typrop_lst = []
         for vid_name in vid_names:
 
-            print(f"sprop_df['name']: {self.sprop_df['name']}\n")
+            #print(f"sprop_df['name']: {self.sprop_df['name']}\n")
 
-            print(f"Processing {vid_name}\n")
-            print(f"inner key: {self.sprop_df[self.sprop_df['name'] == vid_name]}\n")
+            #print(f"Processing {vid_name}\n")
+            #print(f"inner key: {self.sprop_df[self.sprop_df['name'] == vid_name]}\n")
 
-            print(f"2D key len: {len(self.sprop_df[self.sprop_df['name'] == vid_name]['dur'])}\n")
+            #print(f"2D key len: {len(self.sprop_df[self.sprop_df['name'] == vid_name]['dur'])}\n")
             
             # Properties of current Video
             T = int(self.sprop_df[self.sprop_df['name'] == vid_name]['dur'].item())
