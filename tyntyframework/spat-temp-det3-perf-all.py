@@ -217,7 +217,7 @@ if __name__ == "__main__":
             tpr,
             color=roc_color,
             lw=lw,
-            label=f"{alg_name}, AUC:{round(auc, 2)}",
+            label=f"{alg_name}, AUC: {round(auc, 2)}",
         )
 
     # Axis and plot name settings
@@ -226,16 +226,17 @@ if __name__ == "__main__":
     plt.ylim([0.0, 1.05])
     plt.xlabel("False Positive Rate")
     plt.ylabel("True Positive Rate")
-    # plt.title(f"ROC and AUC of all the Algorithms")
     plt.legend(loc="lower right")
 
     # Create histograms of 0 and 1 w.r.t. probability
 
-    png_name = cfg['out_roc_path']
-    plt.savefig(png_name, dpi=300)
+    # Commented out to make sure we save a pgf file
+    # png_name = cfg['out_roc_path']
+    # plt.savefig(png_name, dpi=300)
 
-    # Creating the pgf plots to be added in Dissertation
     plt.tight_layout()
     pgf_name = cfg['out_roc_path_pgf']
     print(f"Saving PGF file to {pgf_name}")
     plt.savefig(pgf_name)
+
+    
